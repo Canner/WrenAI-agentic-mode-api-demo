@@ -6,7 +6,8 @@ import { getMemoryNamespace, loadThreads, touchThread, upsertThread } from "@/li
 import Sidebar, { type Panel } from "@/components/Sidebar";
 import Chat from "@/components/Chat";
 import MemoryPanel from "@/components/MemoryPanel";
-import ArtifactsPanel, { ArtifactPreviewModal, type PreviewTarget } from "@/components/ArtifactsPanel";
+import WorkspacePanel from "@/components/WorkspacePanel";
+import ArtifactPreviewModal, { type PreviewTarget } from "@/components/ArtifactPreviewModal";
 import PreviewPanel, { type ExportPreviewTarget } from "@/components/PreviewPanel";
 
 export default function Home() {
@@ -18,7 +19,7 @@ export default function Home() {
   const [chatKey, setChatKey] = useState("new-0");
   const [panel, setPanel] = useState<Panel>("chat");
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
-  const [exportPreview, setExportPreview] = useState<ExportPreviewTarget | null>(null);
+  const [filePreview, setFilePreview] = useState<ExportPreviewTarget | null>(null);
 
   useEffect(() => {
     setThreads(loadThreads());
@@ -72,14 +73,14 @@ export default function Home() {
             onThreadCreated={onThreadCreated}
             onThreadActivity={onThreadActivity}
             onPreviewArtifact={onPreviewArtifact}
-            onPreviewExport={setExportPreview}
+            onPreviewExport={setFilePreview}
           />
         )}
         {panel === "memory" && <MemoryPanel namespace={namespace} />}
-        {panel === "artifacts" && <ArtifactsPanel onPreview={onPreviewArtifact} />}
+        {panel === "files" && <WorkspacePanel threadId={activeThreadId} onPreview={setFilePreview} />}
       </main>
       {preview && <ArtifactPreviewModal target={preview} onClose={() => setPreview(null)} />}
-      {exportPreview && <PreviewPanel target={exportPreview} onClose={() => setExportPreview(null)} />}
+      {filePreview && <PreviewPanel target={filePreview} onClose={() => setFilePreview(null)} />}
     </div>
   );
 }

@@ -39,7 +39,8 @@ the SSE stream through unchanged.
 | Skills list + `/` autocomplete | `Composer.tsx` |
 | Per-user memory (view + wipe) | [`src/components/MemoryPanel.tsx`](src/components/MemoryPanel.tsx) |
 | Plans (TodoWrite) as a live checklist | `turnReducer.ts`, [`src/components/TurnView.tsx`](src/components/TurnView.tsx) |
-| Artifact cards with preview & download | `TurnView.tsx`, [`src/components/PreviewPanel.tsx`](src/components/PreviewPanel.tsx) |
+| Workspace files: cards, thread file browser, preview & download | `TurnView.tsx`, [`src/components/WorkspacePanel.tsx`](src/components/WorkspacePanel.tsx), [`src/components/PreviewPanel.tsx`](src/components/PreviewPanel.tsx) |
+| Embedding promoted artifacts on another page | [`src/app/embed/page.tsx`](src/app/embed/page.tsx) — a standalone gallery using the project library + presigned URLs |
 | Inline ECharts from `render_chart` results | [`src/components/EChart.tsx`](src/components/EChart.tsx) |
 | Human-in-the-loop (`user_question` → `user_input`) | `TurnView.tsx` + `Chat.tsx` |
 | Cancel a running turn | `Chat.tsx` → `POST .../cancellation` |
@@ -53,6 +54,7 @@ the SSE stream through unchanged.
 | `POST /api/ask/{id}/cancel` | `POST /v2/stream/agent_ask/{id}/cancellation` |
 | `GET /api/turns/{id}/result` | `GET /v2/stream/agent_ask/{id}/result` |
 | `GET /api/threads/{id}/messages` | `GET /v2/projects/{pid}/threads/{tid}/messages` |
+| `GET /api/threads/{id}/workspace` | `GET /v2/projects/{pid}/threads/{tid}/workspace` — list a thread's files |
 | `GET /api/threads/{id}/workspace/{filename}` | `GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}` |
 | `POST /api/uploads` | `POST /v2/projects/{pid}/uploads` |
 | `GET /api/skills` | `GET /v2/projects/{pid}/skills` |
@@ -83,36 +85,57 @@ adds new types without a version bump.
 `EventSource` can't POST, so [`sse.ts`](src/lib/sse.ts) parses the stream from
 a `fetch` body reader (~40 lines).
 
-### Artifacts: two tiers
+### Artifacts: workspace files vs. the project library
 
 ![Artifact card with preview and download](docs/screenshots/artifacts.png)
 
 Every file the agent produces starts as a **workspace file** (`create_artifact`).
 It is announced *only* by its `tool_result` (`{filename, content_type, …}`) —
-fetch the bytes by filename:
+there is no URL-minting step, the response body IS the file:
 
 ```
-GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}   # ?mode=download for attachment
+GET /v2/projects/{pid}/threads/{tid}/workspace              # list a thread's files
+GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}   # the bytes; ?mode=download for attachment
 ```
 
-A file becomes a **project artifact** only when the user asks to keep it
-(the agent calls `save_artifact_to_project`). *Then* an `artifact` SSE frame
-fires with a numeric `artifactId`, the file appears in `GET .../artifacts`,
-and `POST .../presigned-url` mints a short-lived URL a browser can open with
-no API key.
+**This is the surface the chat app uses everywhere**: in-chat file cards and
+the "Thread files" panel ([`WorkspacePanel.tsx`](src/components/WorkspacePanel.tsx))
+both read the thread workspace. Preview whitelist: markdown, HTML, PDF —
+rendered in a slide-over panel ([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
+
+![Thread files panel listing the workspace](docs/screenshots/thread-files.png)
+
+![Slide-over previewing an HTML report from the thread workspace](docs/screenshots/preview.png)
+
+A file joins the **project library** only when the user asks to keep it (the
+agent calls `save_artifact_to_project`). *Then* an `artifact` SSE frame fires
+with a numeric `artifactId`, the file appears in `GET .../artifacts`, and
+`POST .../presigned-url` mints a short-lived URL a browser can open with no
+API key.
 
 > An empty `GET /artifacts` after a turn that made files is **normal** — it
 > means nothing was promoted. Look in the thread workspace.
+
+The library is an **embedding surface**, not a chat surface — see the
+[embed gallery](#embedding-promoted-artifacts-embed) below.
 
 Separately, the **export tools** (`export_file`, `export_text`) return a
 signed `download_url` in their tool result. Those URLs force
 `Content-Disposition: attachment` and send no CORS headers, so this app
 previews them through a tiny server proxy ([`proxy-file`](src/app/api/proxy-file/route.ts)).
 
-Preview whitelist: markdown, HTML, PDF — rendered in a slide-over panel
-([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
+### Embedding promoted artifacts (`/embed`)
 
-![Slide-over previewing an HTML report from the thread workspace](docs/screenshots/preview.png)
+![Standalone gallery embedding promoted artifacts via presigned URLs](docs/screenshots/embed.png)
+
+[`src/app/embed/page.tsx`](src/app/embed/page.tsx) is a standalone page with
+no chat UI — it plays the role of *another page in your product* (a wiki, a
+KPI portal) that embeds the deliverables users asked the agent to keep:
+
+1. List the library: `GET /v2/projects/{pid}/artifacts`
+2. At **render time**, mint a presigned preview URL per artifact and point an
+   `<img>`/`<iframe>` at it — no API key in the browser, no chat context.
+3. Never store the URLs: they expire in minutes. Mint on render.
 
 ### Plans (TodoWrite)
 
@@ -185,12 +208,14 @@ src/
     types.ts         event / block / API types
     client.ts        preview whitelist, artifact URL helpers
   app/api/           one proxy route per WrenAI endpoint (see table above)
+  app/embed/         standalone gallery embedding PROMOTED artifacts (project library)
   components/
     Chat.tsx         turn orchestration: send, stream, restore, cancel
     Composer.tsx     input, attachments, "/" skills autocomplete
     TurnView.tsx     renders blocks: thinking, tools, charts, cards, questions
-    PreviewPanel.tsx slide-over file preview
+    PreviewPanel.tsx slide-over file preview (workspace + export files)
+    WorkspacePanel.tsx  the active thread's workspace files
+    ArtifactPreviewModal.tsx  presigned preview for promoted artifacts
     MemoryPanel.tsx  memory view + wipe
-    ArtifactsPanel.tsx  promoted project artifacts
     EChart.tsx       ECharts wrapper for render_chart specs
 ```

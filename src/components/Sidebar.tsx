@@ -2,7 +2,7 @@
 
 import type { ThreadRef } from "@/lib/types";
 
-export type Panel = "chat" | "memory" | "artifacts";
+export type Panel = "chat" | "memory" | "files";
 
 export default function Sidebar({
   threads,
@@ -57,11 +57,21 @@ export default function Sidebar({
           🧠 Memory
         </button>
         <button
-          className={`block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${panel === "artifacts" ? "bg-slate-100 font-medium" : "text-slate-600"}`}
-          onClick={() => onSelectPanel("artifacts")}
+          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${panel === "files" ? "bg-slate-100 font-medium" : "text-slate-600"}`}
+          onClick={() => onSelectPanel("files")}
         >
-          📦 Artifacts
+          📁 Thread files
         </button>
+        {/* The project artifact LIBRARY (kept/pinned files) is a separate,
+            embed-oriented surface — demoed on its own page at /embed. */}
+        <a
+          className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+          href="/embed"
+          target="_blank"
+          rel="noreferrer"
+        >
+          🖼️ Embed gallery ↗
+        </a>
         <div className="mt-2 truncate px-3 text-[11px] text-slate-400" title={memoryNamespace}>
           namespace: {memoryNamespace}
         </div>
