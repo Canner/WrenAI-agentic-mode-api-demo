@@ -6,7 +6,6 @@ import { getMemoryNamespace, loadThreads, touchThread, upsertThread } from "@/li
 import Sidebar, { type Panel } from "@/components/Sidebar";
 import Chat from "@/components/Chat";
 import MemoryPanel from "@/components/MemoryPanel";
-import WorkspacePanel from "@/components/WorkspacePanel";
 import ArtifactPreviewModal, { type PreviewTarget } from "@/components/ArtifactPreviewModal";
 import PreviewPanel, { type ExportPreviewTarget } from "@/components/PreviewPanel";
 
@@ -77,7 +76,6 @@ export default function Home() {
           />
         )}
         {panel === "memory" && <MemoryPanel namespace={namespace} />}
-        {panel === "files" && <WorkspacePanel threadId={activeThreadId} onPreview={setFilePreview} />}
       </main>
       {preview && <ArtifactPreviewModal target={preview} onClose={() => setPreview(null)} />}
       {filePreview && <PreviewPanel target={filePreview} onClose={() => setFilePreview(null)} />}

@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Block, ThreadMessage, Turn, TurnEvent, UploadedFile } from "@/lib/types";
+import type { Block, ThreadMessage, Turn, TurnEvent, UploadedFile, WorkspaceFile } from "@/lib/types";
 import { reduceTurn } from "@/lib/turnReducer";
 import { streamSse } from "@/lib/sse";
 import Composer from "./Composer";
 import TurnView, { TodoList } from "./TurnView";
+import FilesDrawer from "./FilesDrawer";
 import type { ExportPreviewTarget } from "./PreviewPanel";
 
 type QuestionBlockT = Extract<Block, { kind: "question" }>;
@@ -33,9 +34,29 @@ export default function Chat({
   const [banner, setBanner] = useState<string | null>(null);
   // Mirrors liveThreadId for rendering (workspace-file links need it).
   const [threadId, setThreadId] = useState<number | null>(initialThreadId);
+  // This conversation's workspace files (null = listing unavailable/not loaded).
+  const [files, setFiles] = useState<WorkspaceFile[] | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
   const liveResponseId = useRef<number | null>(null);
   const liveThreadId = useRef<number | null>(initialThreadId);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Refresh the workspace listing — on thread load and after each turn, since
+  // any turn may have written new files via create_artifact.
+  const refreshFiles = useCallback(async (tid: number | null) => {
+    if (tid === null) return;
+    try {
+      const res = await fetch(`/api/threads/${tid}/workspace`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && Array.isArray(data.files)) setFiles(data.files);
+    } catch {
+      /* listing unavailable on this deployment — cards in chat still work */
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshFiles(initialThreadId);
+  }, [initialThreadId, refreshFiles]);
 
   // Rebuild past turns by replaying each turn's persisted events through the
   // same reducer used for live streaming.
@@ -162,9 +183,11 @@ export default function Chat({
         }));
       } finally {
         setStreaming(false);
+        // The turn may have written files into the workspace.
+        refreshFiles(liveThreadId.current);
       }
     },
-    [memoryNamespace, onThreadCreated, onThreadActivity, patchLastTurn]
+    [memoryNamespace, onThreadCreated, onThreadActivity, patchLastTurn, refreshFiles]
   );
 
   const cancel = useCallback(async () => {
@@ -209,6 +232,20 @@ export default function Chat({
 
   return (
     <div className="flex h-full flex-col">
+      {threadId !== null && (
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
+          <div className="text-xs text-slate-400">Thread {threadId}</div>
+          <button
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            onClick={() => {
+              refreshFiles(threadId);
+              setFilesOpen(true);
+            }}
+          >
+            📁 Files{files && files.length > 0 ? ` (${files.length})` : ""}
+          </button>
+        </div>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto bg-slate-50 p-6">
         <div className="mx-auto max-w-3xl space-y-8">
           {liveTodos && (
@@ -238,6 +275,15 @@ export default function Chat({
         </div>
       </div>
       <Composer streaming={streaming} onSend={send} onCancel={cancel} />
+      {filesOpen && threadId !== null && (
+        <FilesDrawer
+          threadId={threadId}
+          files={files}
+          onRefresh={() => refreshFiles(threadId)}
+          onPreview={onPreviewExport}
+          onClose={() => setFilesOpen(false)}
+        />
+      )}
     </div>
   );
 }

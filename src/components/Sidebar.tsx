@@ -2,7 +2,7 @@
 
 import type { ThreadRef } from "@/lib/types";
 
-export type Panel = "chat" | "memory" | "files";
+export type Panel = "chat" | "memory";
 
 export default function Sidebar({
   threads,
@@ -56,14 +56,9 @@ export default function Sidebar({
         >
           🧠 Memory
         </button>
-        <button
-          className={`mb-1 block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 ${panel === "files" ? "bg-slate-100 font-medium" : "text-slate-600"}`}
-          onClick={() => onSelectPanel("files")}
-        >
-          📁 Thread files
-        </button>
-        {/* The project artifact LIBRARY (kept/pinned files) is a separate,
-            embed-oriented surface — demoed on its own page at /embed. */}
+        {/* Per-conversation workspace files live in the chat header ("Files"
+            drawer). The project artifact LIBRARY (kept/pinned files) is a
+            separate, embed-oriented surface — demoed on its own page at /embed. */}
         <a
           className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
           href="/embed"

@@ -39,7 +39,7 @@ the SSE stream through unchanged.
 | Skills list + `/` autocomplete | `Composer.tsx` |
 | Per-user memory (view + wipe) | [`src/components/MemoryPanel.tsx`](src/components/MemoryPanel.tsx) |
 | Plans (TodoWrite) as a live checklist | `turnReducer.ts`, [`src/components/TurnView.tsx`](src/components/TurnView.tsx) |
-| Workspace files: cards, thread file browser, preview & download | `TurnView.tsx`, [`src/components/WorkspacePanel.tsx`](src/components/WorkspacePanel.tsx), [`src/components/PreviewPanel.tsx`](src/components/PreviewPanel.tsx) |
+| Workspace files: in-chat cards + per-conversation Files drawer | `TurnView.tsx`, [`src/components/FilesDrawer.tsx`](src/components/FilesDrawer.tsx), [`src/components/PreviewPanel.tsx`](src/components/PreviewPanel.tsx) |
 | Embedding promoted artifacts on another page | [`src/app/embed/page.tsx`](src/app/embed/page.tsx) — a standalone gallery using the project library + presigned URLs |
 | Inline ECharts from `render_chart` results | [`src/components/EChart.tsx`](src/components/EChart.tsx) |
 | Human-in-the-loop (`user_question` → `user_input`) | `TurnView.tsx` + `Chat.tsx` |
@@ -98,12 +98,14 @@ GET /v2/projects/{pid}/threads/{tid}/workspace              # list a thread's fi
 GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}   # the bytes; ?mode=download for attachment
 ```
 
-**This is the surface the chat app uses everywhere**: in-chat file cards and
-the "Thread files" panel ([`WorkspacePanel.tsx`](src/components/WorkspacePanel.tsx))
-both read the thread workspace. Preview whitelist: markdown, HTML, PDF —
-rendered in a slide-over panel ([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
+**This is the surface the chat app uses everywhere.** Workspace files are
+scoped to one conversation, so the UI keeps them there: file cards inline in
+the chat, plus a "Files" drawer in the chat header
+([`FilesDrawer.tsx`](src/components/FilesDrawer.tsx)) listing that thread's
+workspace. Preview whitelist: markdown, HTML, PDF — rendered in a slide-over
+panel ([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
 
-![Thread files panel listing the workspace](docs/screenshots/thread-files.png)
+![Files drawer listing the conversation's workspace](docs/screenshots/thread-files.png)
 
 ![Slide-over previewing an HTML report from the thread workspace](docs/screenshots/preview.png)
 
@@ -214,7 +216,7 @@ src/
     Composer.tsx     input, attachments, "/" skills autocomplete
     TurnView.tsx     renders blocks: thinking, tools, charts, cards, questions
     PreviewPanel.tsx slide-over file preview (workspace + export files)
-    WorkspacePanel.tsx  the active thread's workspace files
+    FilesDrawer.tsx  per-conversation workspace file drawer (chat header)
     ArtifactPreviewModal.tsx  presigned preview for promoted artifacts
     MemoryPanel.tsx  memory view + wipe
     EChart.tsx       ECharts wrapper for render_chart specs

@@ -25,6 +25,13 @@ export interface ArtifactMeta {
   updatedAt?: string;
 }
 
+// One entry from GET /v2/projects/{pid}/threads/{tid}/workspace
+export interface WorkspaceFile {
+  filename: string;
+  contentType?: string;
+  lastModified?: string;
+}
+
 export interface ThreadMessage {
   threadResponseId: number;
   question: string;
