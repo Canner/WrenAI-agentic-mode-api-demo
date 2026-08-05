@@ -58,15 +58,7 @@ export default function Sidebar({
         </button>
         {/* Per-conversation workspace files live in the chat header ("Files"
             drawer). The project artifact LIBRARY (kept/pinned files) is a
-            separate, embed-oriented surface — demoed on its own page at /embed. */}
-        <a
-          className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-          href="/embed"
-          target="_blank"
-          rel="noreferrer"
-        >
-          🖼️ Embed gallery ↗
-        </a>
+            separate, embed-oriented surface — see /embed (not linked here). */}
         <div className="mt-2 truncate px-3 text-[11px] text-slate-400" title={memoryNamespace}>
           namespace: {memoryNamespace}
         </div>
