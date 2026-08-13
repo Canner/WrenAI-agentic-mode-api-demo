@@ -15,16 +15,6 @@ export interface Skill {
   isDisabled: boolean;
 }
 
-export interface ArtifactMeta {
-  id: number;
-  name: string;
-  kind: string;
-  description?: string | null;
-  contentType?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
 // One entry from GET /v2/projects/{pid}/threads/{tid}/workspace
 export interface WorkspaceFile {
   filename: string;
@@ -59,10 +49,10 @@ export type Block =
   | { kind: "tool"; blockId: string; toolId?: string; name: string; summary: string; input: string; output: string; done: boolean }
   | { kind: "chart"; blockId: string; spec: Record<string, unknown>; caption?: string }
   | { kind: "subagent"; blockId: string; name: string; events: string[]; done: boolean }
-  // Two tiers of artifacts (see README): a thread-workspace file has no
-  // artifactId and is fetched by filename; a promoted project artifact carries
-  // the numeric id used with the presigned-url endpoint.
-  | { kind: "artifact"; blockId: string; artifactId?: number; name: string; artifactKind: string; description?: string }
+  // A file the agent wrote into the thread workspace, fetched by filename via
+  // the workspace endpoint. `promoted` marks files the user asked to keep
+  // (announced by an `artifact` SSE frame).
+  | { kind: "artifact"; blockId: string; name: string; artifactKind: string; description?: string; promoted?: boolean }
   | { kind: "export"; blockId: string; filename: string; downloadUrl: string; contentType: string; sizeBytes?: number; description?: string }
   | { kind: "todos"; blockId: string; items: TodoItem[] }
   | { kind: "question"; blockId: string; questionId?: string; text: string; options: string[]; answered: boolean }

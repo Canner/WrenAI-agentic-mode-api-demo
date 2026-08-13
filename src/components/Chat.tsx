@@ -11,6 +11,53 @@ import type { ExportPreviewTarget } from "./PreviewPanel";
 
 type QuestionBlockT = Extract<Block, { kind: "question" }>;
 
+function turnStatusOf(s: string): Turn["status"] {
+  return s === "INTERRUPTED" ? "interrupted" : s === "FAILED" ? "failed" : "finished";
+}
+
+// Rebuild a settled turn by replaying its persisted events through the same
+// reducer used for live streaming — shared by history load and stream recovery.
+async function replayTurn(threadResponseId: number): Promise<{ blocks: Block[]; status: Turn["status"] } | null> {
+  const res = await fetch(`/api/turns/${threadResponseId}/result`);
+  if (!res.ok) return null;
+  const data: { status: string; events: Array<Record<string, unknown>> } = await res.json();
+  let blocks: Block[] = [];
+  for (const raw of data.events || []) {
+    const { sseEventType, ...rest } = raw;
+    blocks = reduceTurn(blocks, { type: String(sseEventType), ...rest } as TurnEvent);
+  }
+  // A replayed turn is settled: questions were answered or abandoned, and no
+  // reasoning is still in flight (turns persisted under the older contract
+  // may lack per-segment thinking_done frames).
+  blocks = blocks.map((b) =>
+    b.kind === "question" ? { ...b, answered: true } : b.kind === "thinking" ? { ...b, done: true } : b
+  );
+  return { blocks, status: turnStatusOf(data.status) };
+}
+
+const TERMINAL_STATUSES = new Set(["FINISHED", "INTERRUPTED", "FAILED"]);
+
+// A dropped SSE socket does NOT mean the turn died — a proxy may cap how long
+// one request stays open, however busy the stream is (90s on the deployment we
+// measured, with frames still arriving). The turn keeps running server-side, so
+// poll its status until it settles, then rebuild it.
+async function recoverTurn(threadResponseId: number): Promise<{ blocks: Block[]; status: Turn["status"] } | null> {
+  for (let i = 0; i < 360; i++) {
+    // Up to ~30 min — a paused clarification can hold a turn open for a while.
+    try {
+      const res = await fetch(`/api/turns/${threadResponseId}/status`);
+      if (res.ok) {
+        const { status } = await res.json();
+        if (TERMINAL_STATUSES.has(String(status))) return replayTurn(threadResponseId);
+      }
+    } catch {
+      /* transient — keep polling */
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return null;
+}
+
 // Remounted (via key) only on explicit navigation: a live turn that receives
 // its threadId from the `init` frame must keep streaming uninterrupted.
 export default function Chat({
@@ -18,14 +65,12 @@ export default function Chat({
   memoryNamespace,
   onThreadCreated,
   onThreadActivity,
-  onPreviewArtifact,
   onPreviewExport,
 }: {
   initialThreadId: number | null;
   memoryNamespace: string;
   onThreadCreated: (threadId: number, title: string) => void;
   onThreadActivity: (threadId: number) => void;
-  onPreviewArtifact: (id: number, name: string) => void;
   onPreviewExport: (target: ExportPreviewTarget) => void;
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -82,24 +127,11 @@ export default function Chat({
 
         const rebuilt = await Promise.all(
           messages.map(async (m): Promise<Turn> => {
-            const res = await fetch(`/api/turns/${m.threadResponseId}/result`);
-            if (!res.ok) {
+            const replay = await replayTurn(m.threadResponseId);
+            if (!replay) {
               return { threadResponseId: m.threadResponseId, question: m.question, blocks: [], status: "failed" };
             }
-            const data: { status: string; events: Array<Record<string, unknown>> } = await res.json();
-            let blocks: Block[] = [];
-            for (const raw of data.events || []) {
-              const { sseEventType, ...rest } = raw;
-              blocks = reduceTurn(blocks, { type: String(sseEventType), ...rest } as TurnEvent);
-            }
-            // A replayed turn is settled: questions were answered or abandoned,
-            // and no reasoning is still in flight (turns persisted under the
-            // older contract may lack per-segment thinking_done frames).
-            blocks = blocks.map((b) =>
-              b.kind === "question" ? { ...b, answered: true } : b.kind === "thinking" ? { ...b, done: true } : b
-            );
-            const status = m.status === "FINISHED" ? "finished" : m.status === "INTERRUPTED" ? "interrupted" : m.status === "FAILED" ? "failed" : "finished";
-            return { threadResponseId: m.threadResponseId, question: m.question, blocks, status };
+            return { threadResponseId: m.threadResponseId, question: m.question, ...replay };
           })
         );
         if (!cancelled) setTurns(rebuilt);
@@ -176,11 +208,19 @@ export default function Chat({
         });
       } catch (e) {
         const message = (e as Error).message;
-        patchLastTurn((t) => ({
-          ...t,
-          status: t.status === "streaming" ? "failed" : t.status,
-          blocks: message.includes("abort") ? t.blocks : reduceTurn(t.blocks, { type: "error", error: message }),
-        }));
+        const aborted = message.includes("abort");
+        // Once the init frame named the turn, a mid-stream drop is recoverable:
+        // wait out the server-side turn and swap in its persisted events.
+        const recovered = !aborted && liveResponseId.current !== null ? await recoverTurn(liveResponseId.current) : null;
+        if (recovered) {
+          patchLastTurn((t) => ({ ...t, ...recovered }));
+        } else {
+          patchLastTurn((t) => ({
+            ...t,
+            status: t.status === "streaming" ? "failed" : t.status,
+            blocks: aborted ? t.blocks : reduceTurn(t.blocks, { type: "error", error: message }),
+          }));
+        }
       } finally {
         setStreaming(false);
         // The turn may have written files into the workspace.
@@ -268,7 +308,6 @@ export default function Chat({
               turn={turn}
               threadId={threadId}
               onAnswer={answerQuestion}
-              onPreviewArtifact={onPreviewArtifact}
               onPreviewExport={onPreviewExport}
             />
           ))}

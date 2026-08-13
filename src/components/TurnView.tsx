@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Block, TodoItem, Turn } from "@/lib/types";
-import { formatBytes, getArtifactUrl, previewKind } from "@/lib/client";
+import { formatBytes, previewKind } from "@/lib/client";
 import type { ExportPreviewTarget } from "./PreviewPanel";
 import Markdown from "./Markdown";
 import EChart from "./EChart";
@@ -66,83 +66,56 @@ function SubagentBlock({ block }: { block: Extract<Block, { kind: "subagent" }> 
   );
 }
 
-// One card for both artifact tiers:
-// - a promoted PROJECT artifact (has artifactId) previews/downloads via the
-//   presigned-url endpoint;
-// - a thread WORKSPACE file (no artifactId) is fetched by filename via the
-//   workspace endpoint.
+// A file the agent produced, fetched by filename from the thread workspace.
+// Promoted files (the user asked to keep them) get a badge; the workspace
+// serves the bytes either way.
 export function ArtifactCard({
-  artifactId,
   threadId,
   name,
   kind,
   description,
-  onPreview,
+  promoted,
   onPreviewWorkspace,
 }: {
-  artifactId?: number;
   threadId?: number | null;
   name: string;
   kind: string;
   description?: string;
-  onPreview: (id: number, name: string) => void;
+  promoted?: boolean;
   onPreviewWorkspace: (target: ExportPreviewTarget) => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const hasProjectArtifact = artifactId !== undefined && Number.isFinite(artifactId);
   const workspaceUrl = threadId ? `/api/threads/${threadId}/workspace/${encodeURIComponent(name)}` : undefined;
   const workspacePreview = workspaceUrl ? previewKind(name, kind) : null;
-  const download = async () => {
-    setBusy(true);
-    try {
-      const { url } = await getArtifactUrl(artifactId!, "download");
-      window.open(url, "_blank");
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
       <span className="text-lg">📄</span>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium text-emerald-900">{name}</div>
+        <div className="flex items-center gap-2">
+          <span className="truncate font-medium text-emerald-900">{name}</span>
+          {promoted && <span className="shrink-0 rounded-full bg-emerald-200 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800">kept</span>}
+        </div>
         <div className="text-xs text-emerald-700">{kind}</div>
         {description && <div className="mt-0.5 line-clamp-1 text-xs text-emerald-600">{description}</div>}
       </div>
-      {hasProjectArtifact ? (
-        <>
-          <button className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50" disabled={busy} onClick={() => onPreview(artifactId!, name)}>
-            Preview
-          </button>
-          <button className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50" disabled={busy} onClick={download}>
-            Download
-          </button>
-        </>
+      {workspacePreview && (
+        <button
+          className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+          onClick={() => onPreviewWorkspace({ filename: name, contentType: kind, kind: workspacePreview, localUrl: workspaceUrl })}
+        >
+          Preview
+        </button>
+      )}
+      {workspaceUrl ? (
+        <a
+          className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+          href={`${workspaceUrl}?mode=download`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download
+        </a>
       ) : (
-        <>
-          {workspacePreview && (
-            <button
-              className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-              onClick={() => onPreviewWorkspace({ filename: name, contentType: kind, kind: workspacePreview, localUrl: workspaceUrl })}
-            >
-              Preview
-            </button>
-          )}
-          {workspaceUrl ? (
-            <a
-              className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-              href={`${workspaceUrl}?mode=download`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Download
-            </a>
-          ) : (
-            <span className="text-xs text-emerald-600">saved in thread workspace</span>
-          )}
-        </>
+        <span className="text-xs text-emerald-600">saved in thread workspace</span>
       )}
     </div>
   );
@@ -268,13 +241,11 @@ export default function TurnView({
   turn,
   threadId,
   onAnswer,
-  onPreviewArtifact,
   onPreviewExport,
 }: {
   turn: Turn;
   threadId?: number | null;
   onAnswer: (block: Extract<Block, { kind: "question" }>, answer: string) => void | Promise<void>;
-  onPreviewArtifact: (id: number, name: string) => void;
   onPreviewExport: (target: ExportPreviewTarget) => void;
 }) {
   return (
@@ -318,12 +289,11 @@ export default function TurnView({
               return (
                 <ArtifactCard
                   key={block.blockId}
-                  artifactId={block.artifactId}
                   threadId={threadId}
                   name={block.name}
                   kind={block.artifactKind}
                   description={block.description}
-                  onPreview={onPreviewArtifact}
+                  promoted={block.promoted}
                   onPreviewWorkspace={onPreviewExport}
                 />
               );

@@ -250,18 +250,18 @@ export function reduceTurn(blocks: Block[], e: TurnEvent): Block[] {
       return next;
     }
 
-    // ── Project artifacts ────────────────────────────────────────────────
+    // ── Promoted artifacts ───────────────────────────────────────────────
     // Fires only when a file is PROMOTED into the project library (the agent
-    // called save_artifact_to_project because the user asked to keep it).
-    // Carries a numeric artifactId usable with the presigned-url endpoint.
+    // called save_artifact_to_project because the user asked to keep it). The
+    // frame marks the file as kept; the bytes are read from the thread
+    // workspace by filename, same as any other file.
     case "artifact": {
-      const rawId = pick(e, "artifactId", "artifact_id", "id");
       next.push({
         kind: "artifact",
         blockId: blockIdOf(e, "artifact"),
-        artifactId: rawId !== undefined && Number.isFinite(Number(rawId)) ? Number(rawId) : undefined,
         name: str(pick(e, "filename", "fileName", "name"), "artifact"),
         artifactKind: str(pick(e, "kind"), "file"),
+        promoted: true,
       });
       return next;
     }

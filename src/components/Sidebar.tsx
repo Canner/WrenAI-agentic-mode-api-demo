@@ -56,9 +56,8 @@ export default function Sidebar({
         >
           🧠 Memory
         </button>
-        {/* Per-conversation workspace files live in the chat header ("Files"
-            drawer). The project artifact LIBRARY (kept/pinned files) is a
-            separate, embed-oriented surface — see /embed (not linked here). */}
+        {/* Every file the agent produced — kept ones included — lives in the
+            chat header's "Files" drawer, scoped to that conversation. */}
         <div className="mt-2 truncate px-3 text-[11px] text-slate-400" title={memoryNamespace}>
           namespace: {memoryNamespace}
         </div>
