@@ -1,18 +1,5 @@
 // Small client-side helpers shared by chat and panels.
 
-export async function getArtifactUrl(artifactId: number, mode: "preview" | "download"): Promise<{ url: string; contentType?: string; name?: string }> {
-  const res = await fetch(`/api/artifacts/${artifactId}/url`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to get artifact URL (${res.status})`);
-  }
-  return res.json();
-}
-
 export const ALLOWED_EXTENSIONS = [
   ".csv", ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".sql", ".yaml", ".yml", ".md", ".json", ".txt", ".zip",
 ];

@@ -40,10 +40,10 @@ the SSE stream through unchanged.
 | Per-user memory (view + wipe) | [`src/components/MemoryPanel.tsx`](src/components/MemoryPanel.tsx) |
 | Plans (TodoWrite) as a live checklist | `turnReducer.ts`, [`src/components/TurnView.tsx`](src/components/TurnView.tsx) |
 | Workspace files: in-chat cards + per-conversation Files drawer | `TurnView.tsx`, [`src/components/FilesDrawer.tsx`](src/components/FilesDrawer.tsx), [`src/components/PreviewPanel.tsx`](src/components/PreviewPanel.tsx) |
-| Embedding promoted artifacts on another page | [`src/app/embed/page.tsx`](src/app/embed/page.tsx) — a standalone gallery using the project library + presigned URLs |
 | Inline ECharts from `render_chart` results | [`src/components/EChart.tsx`](src/components/EChart.tsx) |
 | Human-in-the-loop (`user_question` → `user_input`) | `TurnView.tsx` + `Chat.tsx` |
 | Cancel a running turn | `Chat.tsx` → `POST .../cancellation` |
+| Recover a turn whose SSE socket dropped | `Chat.tsx` — polls `GET .../status`, then replays `GET .../result` |
 
 ## How the API is used
 
@@ -53,13 +53,13 @@ the SSE stream through unchanged.
 | `POST /api/ask/{id}/user-input` | `POST /v2/stream/agent_ask/{id}/user_input` |
 | `POST /api/ask/{id}/cancel` | `POST /v2/stream/agent_ask/{id}/cancellation` |
 | `GET /api/turns/{id}/result` | `GET /v2/stream/agent_ask/{id}/result` |
+| `GET /api/turns/{id}/status` | `GET /v2/stream/agent_ask/{id}/status` |
 | `GET /api/threads/{id}/messages` | `GET /v2/projects/{pid}/threads/{tid}/messages` |
 | `GET /api/threads/{id}/workspace` | `GET /v2/projects/{pid}/threads/{tid}/workspace` — list a thread's files |
 | `GET /api/threads/{id}/workspace/{filename}` | `GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}` |
 | `POST /api/uploads` | `POST /v2/projects/{pid}/uploads` |
 | `GET /api/skills` | `GET /v2/projects/{pid}/skills` |
 | `GET/DELETE /api/memory?ns=…` | `GET/DELETE /v2/projects/{pid}/memories/{ns}` (+ `/file`) |
-| `GET /api/artifacts`, `POST /api/artifacts/{id}/url` | `GET /v2/projects/{pid}/artifacts`, `POST .../presigned-url` |
 | `GET /api/proxy-file?url=…` | (helper) re-serves signed export URLs inline for previews |
 
 ## Integration notes
@@ -85,11 +85,11 @@ adds new types without a version bump.
 `EventSource` can't POST, so [`sse.ts`](src/lib/sse.ts) parses the stream from
 a `fetch` body reader (~40 lines).
 
-### Artifacts: workspace files vs. the project library
+### Artifacts live in the thread workspace
 
 ![Artifact card with preview and download](docs/screenshots/artifacts.png)
 
-Every file the agent produces starts as a **workspace file** (`create_artifact`).
+Every file the agent produces is a **workspace file** (`create_artifact`).
 It is announced *only* by its `tool_result` (`{filename, content_type, …}`) —
 there is no URL-minting step, the response body IS the file:
 
@@ -98,9 +98,8 @@ GET /v2/projects/{pid}/threads/{tid}/workspace              # list a thread's fi
 GET /v2/projects/{pid}/threads/{tid}/workspace/{filename}   # the bytes; ?mode=download for attachment
 ```
 
-**This is the surface the chat app uses everywhere.** Workspace files are
-scoped to one conversation, so the UI keeps them there: file cards inline in
-the chat, plus a "Files" drawer in the chat header
+Workspace files are scoped to one conversation, so the UI keeps them there:
+file cards inline in the chat, plus a "Files" drawer in the chat header
 ([`FilesDrawer.tsx`](src/components/FilesDrawer.tsx)) listing that thread's
 workspace. Preview whitelist: markdown, HTML, PDF — rendered in a slide-over
 panel ([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
@@ -109,35 +108,14 @@ panel ([`PreviewPanel.tsx`](src/components/PreviewPanel.tsx)).
 
 ![Slide-over previewing an HTML report from the thread workspace](docs/screenshots/preview.png)
 
-A file joins the **project library** only when the user asks to keep it (the
-agent calls `save_artifact_to_project`). *Then* an `artifact` SSE frame fires
-with a numeric `artifactId`, the file appears in `GET .../artifacts`, and
-`POST .../presigned-url` mints a short-lived URL a browser can open with no
-API key.
-
-> An empty `GET /artifacts` after a turn that made files is **normal** — it
-> means nothing was promoted. Look in the thread workspace.
-
-The library is an **embedding surface**, not a chat surface — see the
-[embed gallery](#embedding-promoted-artifacts-embed) below.
+When the user asks to keep a file, the agent calls `save_artifact_to_project`
+and an `artifact` SSE frame fires — this app renders it as a "kept" badge on
+the file's card; the bytes still come from the workspace endpoint.
 
 Separately, the **export tools** (`export_file`, `export_text`) return a
 signed `download_url` in their tool result. Those URLs force
 `Content-Disposition: attachment` and send no CORS headers, so this app
 previews them through a tiny server proxy ([`proxy-file`](src/app/api/proxy-file/route.ts)).
-
-### Embedding promoted artifacts (`/embed`)
-
-![Standalone gallery embedding promoted artifacts via presigned URLs](docs/screenshots/embed.png)
-
-[`src/app/embed/page.tsx`](src/app/embed/page.tsx) is a standalone page with
-no chat UI — it plays the role of *another page in your product* (a wiki, a
-KPI portal) that embeds the deliverables users asked the agent to keep:
-
-1. List the library: `GET /v2/projects/{pid}/artifacts`
-2. At **render time**, mint a presigned preview URL per artifact and point an
-   `<img>`/`<iframe>` at it — no API key in the browser, no chat context.
-3. Never store the URLs: they expire in minutes. Mint on render.
 
 ### Plans (TodoWrite)
 
@@ -189,6 +167,15 @@ reducer.
 - **One turn per thread at a time** — a concurrent ask returns `409`.
 - Send an **`Idempotency-Key`** on every ask; a retried request replays the
   original turn instead of billing a second one ([`ask/route.ts`](src/app/api/ask/route.ts)).
+- **A dropped stream ≠ a dead turn.** A proxy in front of the API may cap how
+  long one request may stay open, however busy the stream is — on the
+  deployment we measured, requests were cut at 90s while frames were still
+  arriving every few seconds, so heartbeats would not have helped. The turn
+  keeps running server-side and finishes: poll `GET .../status` until it
+  reports a terminal state, then rebuild the turn from `GET .../result`
+  (`Chat.tsx` does exactly this instead of surfacing a network error). Any turn
+  that outlives the cap has to be finished this way, so treat the SSE stream as
+  a best-effort live view and `/result` as the source of truth.
 - **`user_question` keeps the stream open** — reply via the `user_input`
   side-channel with the frame's `question_id`; the turn resumes on the same
   stream. Guard against double-submits: answering the same question twice
@@ -197,6 +184,10 @@ reducer.
   `files` array spanning two `uploadSessionId`s is rejected with `400`.
 - Allowed upload extensions: csv, doc(x), pdf, xls(x), sql, yaml/yml, md,
   json, txt, zip — max 10 files per request.
+- **`status` has no "running" value.** A turn's status is written when the turn
+  settles, so `GET .../status` answers `NOT_STARTED` for the entire time it is
+  in flight and only then flips to `FINISHED` / `INTERRUPTED` / `FAILED`. Poll
+  it for *terminal or not*, never to mean "hasn't begun".
 
 ## Project layout
 
@@ -208,16 +199,14 @@ src/
     turnReducer.ts   events → renderable blocks (live + replay)
     store.ts         localStorage: thread list, memory namespace
     types.ts         event / block / API types
-    client.ts        preview whitelist, artifact URL helpers
+    client.ts        preview whitelist, upload whitelist, formatters
   app/api/           one proxy route per WrenAI endpoint (see table above)
-  app/embed/         standalone gallery embedding PROMOTED artifacts (project library)
   components/
-    Chat.tsx         turn orchestration: send, stream, restore, cancel
+    Chat.tsx         turn orchestration: send, stream, restore, recover, cancel
     Composer.tsx     input, attachments, "/" skills autocomplete
     TurnView.tsx     renders blocks: thinking, tools, charts, cards, questions
     PreviewPanel.tsx slide-over file preview (workspace + export files)
     FilesDrawer.tsx  per-conversation workspace file drawer (chat header)
-    ArtifactPreviewModal.tsx  presigned preview for promoted artifacts
     MemoryPanel.tsx  memory view + wipe
     EChart.tsx       ECharts wrapper for render_chart specs
 ```

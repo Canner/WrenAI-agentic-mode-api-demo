@@ -6,7 +6,6 @@ import { getMemoryNamespace, loadThreads, touchThread, upsertThread } from "@/li
 import Sidebar, { type Panel } from "@/components/Sidebar";
 import Chat from "@/components/Chat";
 import MemoryPanel from "@/components/MemoryPanel";
-import ArtifactPreviewModal, { type PreviewTarget } from "@/components/ArtifactPreviewModal";
 import PreviewPanel, { type ExportPreviewTarget } from "@/components/PreviewPanel";
 
 export default function Home() {
@@ -17,7 +16,6 @@ export default function Home() {
   // never when a live turn learns its threadId from the init frame.
   const [chatKey, setChatKey] = useState("new-0");
   const [panel, setPanel] = useState<Panel>("chat");
-  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [filePreview, setFilePreview] = useState<ExportPreviewTarget | null>(null);
 
   useEffect(() => {
@@ -46,10 +44,6 @@ export default function Home() {
     setThreads(touchThread(threadId));
   }, []);
 
-  const onPreviewArtifact = useCallback((id: number, name: string) => {
-    setPreview({ id, name });
-  }, []);
-
   if (!namespace) return null; // one frame while localStorage hydrates
 
   return (
@@ -71,13 +65,11 @@ export default function Home() {
             memoryNamespace={namespace}
             onThreadCreated={onThreadCreated}
             onThreadActivity={onThreadActivity}
-            onPreviewArtifact={onPreviewArtifact}
             onPreviewExport={setFilePreview}
           />
         )}
         {panel === "memory" && <MemoryPanel namespace={namespace} />}
       </main>
-      {preview && <ArtifactPreviewModal target={preview} onClose={() => setPreview(null)} />}
       {filePreview && <PreviewPanel target={filePreview} onClose={() => setFilePreview(null)} />}
     </div>
   );
